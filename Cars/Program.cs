@@ -12,36 +12,63 @@ namespace Cars
             var cars = ProcessCars("fuel.csv");
             var manufacturers = ProcessManufacturers("manufacturers.csv");
 
+
             var query =
-                from car in cars
-                join manufacturer in manufacturers
-                    on new {car.Manufacturer, car.Year }
-                    equals
-                    new { Manufacturer = manufacturer.Name, manufacturer.Year }
-                orderby car.Combined descending, car.Name ascending
+                from manufacturer in manufacturers
+                join car in cars on manufacturer.Name equals car.Manufacturer
+                into carGroup
                 select new
                 {
-                    manufacturer.Headquarters,
-                    car.Name,
-                    car.Combined
-                };
+                    Manufacturer = manufacturer,
+                    Cars = carGroup
+                } into result
+                group result by result.Manufacturer.Headquarters;
 
             var query2 =
-                cars.Join(manufacturers,
-                            c => new { c.Manufacturer, c.Year },
-                            m => new { Manufacturer = m.Name, m.Year },
-                            (c, m) => new
-                            {
-                                m.Headquarters,
-                                c.Name,
-                                c.Combined
-                            })
-                .OrderByDescending(c => c.Combined)
-                .ThenBy(c => c.Name);
+                manufacturers.GroupJoin(cars, m => m.Name, c => c.Manufacturer,
+                (m, g) =>
+                new
+                {
+                    Manufacturer = m,
+                    Cars = g
+                })
+                .GroupBy(m => m.Manufacturer.Headquarters);
 
-            foreach (var car in query2.Take(10))
+
+            var query3 =
+                from car in cars
+                group car by car.Manufacturer into carGroup
+                select new
+                {
+                    Name = carGroup.Key,
+                    Max = carGroup.Max(c => c.Combined),
+                    Min = carGroup.Min(c => c.Combined),
+                    Avg = carGroup.Average(c => c.Combined)
+                };
+
+            var query4 =
+                cars.GroupBy(c => c.Manufacturer)
+                    .Select(g =>
+                    {
+                        var results = g.Aggregate(new CarStatistics(),
+                            (acc, c) => acc.Accumulate(c),
+                            acc => acc.Compute());
+                        return new
+                        {
+                            Name = g.Key,
+                            Avg = results.Average,
+                            Min = results.Min,
+                            Max = results.Max
+                        };
+                    })
+                    .OrderByDescending(r => r.Max);
+
+            foreach (var result in query4)
             {
-                Console.WriteLine($"{car.Headquarters} {car.Name} : {car.Combined}");
+                Console.WriteLine($"{result.Name}");
+                Console.WriteLine($"\t Max : {result.Max}");
+                Console.WriteLine($"\t Min : {result.Min}");
+                Console.WriteLine($"\t Avg : {result.Avg}");
             }
         }
 
@@ -102,6 +129,36 @@ namespace Cars
             }
         }
 
+
+    }
+
+    public class CarStatistics
+    {
+        public CarStatistics()
+        {
+            Max = Int32.MaxValue;
+            Min = Int32.MaxValue;
+        }
+        public CarStatistics Accumulate(Car car)
+        {
+            Count++;
+            Total += car.Combined;
+            Max = Math.Max(Max, car.Combined);
+            Min = Math.Min(Min, car.Combined);
+            return this;
+        }
+
+        public CarStatistics Compute()
+        {
+            Average = Total / Count;
+            return this;
+        }
+
+        public int Max { get; set; }
+        public int Min { get; set; }
+        public int Total { get; set; }
+        public int Count { get; set; }
+        public double Average { get; set; }
 
     }
 }
